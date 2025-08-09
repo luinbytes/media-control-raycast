@@ -425,12 +425,12 @@ export default function MediaControl() {
               <List.Item
                 title="Previous Track"
                 subtitle="Skip to previous track"
-                icon={{ source: Icon.Backward, tintColor: Color.Blue }}
+                icon={{ source: Icon.ChevronLeft, tintColor: Color.Blue }}
                 actions={
                   <ActionPanel>
                     <Action
                       title="Previous"
-                      icon={Icon.Backward}
+                      icon={Icon.ChevronLeft}
                       onAction={() => handleMediaControl("previous")}
                       shortcut={{ modifiers: ["cmd"], key: "arrowLeft" }}
                     />
@@ -443,12 +443,12 @@ export default function MediaControl() {
               <List.Item
                 title="Next Track"
                 subtitle="Skip to next track"
-                icon={{ source: Icon.Forward, tintColor: Color.Blue }}
+                icon={{ source: Icon.ChevronRight, tintColor: Color.Blue }}
                 actions={
                   <ActionPanel>
                     <Action
                       title="Next"
-                      icon={Icon.Forward}
+                      icon={Icon.ChevronRight}
                       onAction={() => handleMediaControl("next")}
                       shortcut={{ modifiers: ["cmd"], key: "arrowRight" }}
                     />
