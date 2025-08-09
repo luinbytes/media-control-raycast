@@ -28,6 +28,7 @@ export default function MediaControl() {
   const [volume, setVolumeState] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [previousSessions, setPreviousSessions] = useState<MediaSession[]>([]);
   
   const preferences = getPreferenceValues<Preferences>();
   const refreshInterval = parseInt(preferences.refreshInterval) || 2000;
@@ -38,21 +39,38 @@ export default function MediaControl() {
         getCurrentMediaSession(),
         getVolume(),
       ]);
-      
-      setMediaSession(session);
+
+      // If detection yields null, keep last known session but mark paused and cache as previous
+      if (!session && mediaSession) {
+        setMediaSession({ ...mediaSession, isPlaying: false });
+        setPreviousSessions((prev) => {
+          const exists = prev.find(
+            (p) => p.title === mediaSession.title && p.appDisplayName === mediaSession.appDisplayName
+          );
+          const next = exists ? prev : [mediaSession, ...prev];
+          return next.slice(0, 3);
+        });
+      } else {
+        // New session replaced old one: push old to previous list
+        if (session && mediaSession && (session.title !== mediaSession.title || session.appDisplayName !== mediaSession.appDisplayName)) {
+          setPreviousSessions((prev) => {
+            const exists = prev.find(
+              (p) => p.title === mediaSession.title && p.appDisplayName === mediaSession.appDisplayName
+            );
+            const next = exists ? prev : [mediaSession, ...prev];
+            return next.slice(0, 3);
+          });
+        }
+        setMediaSession(session);
+      }
       setVolumeState(currentVolume);
       setLastRefresh(new Date());
     } catch (error) {
-      console.error("Error refreshing media info:", error);
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "Failed to refresh media info",
-        message: String(error),
-      });
+      console.error("Failed to refresh media info:", error);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [mediaSession]);
 
   useEffect(() => {
     refreshMediaInfo();
@@ -61,7 +79,7 @@ export default function MediaControl() {
     return () => clearInterval(interval);
   }, [refreshInterval]);
 
-  const handleMediaControl = async (action: "play" | "pause" | "next" | "previous" | "toggl") => {
+  const handleMediaControl = async (action: "play" | "pause" | "next" | "previous" | "toggle") => {
     setIsLoading(true);
     
     try {
@@ -235,21 +253,51 @@ export default function MediaControl() {
   return (
     <List isLoading={isLoading} searchBarPlaceholder="Search media controls...">
       {!mediaSession ? (
-        <List.Item
-          title="No Active Media Session"
-          subtitle="Start playing media in any app to control it here"
-          icon={{ source: Icon.SpeakerOff, tintColor: Color.SecondaryText }}
-          actions={
-            <ActionPanel>
-              <Action
-                title="Refresh"
-                icon={Icon.ArrowClockwise}
-                onAction={refreshMediaInfo}
-                shortcut={{ modifiers: ["cmd"], key: "r" }}
-              />
-            </ActionPanel>
-          }
-        />
+        <>
+          <List.Item
+            title="No Active Media Session"
+            subtitle="Press Enter to Play media globally"
+            icon={{ source: Icon.SpeakerOff, tintColor: Color.SecondaryText }}
+            actions={
+              <ActionPanel>
+                <Action
+                  title="Global Play"
+                  icon={Icon.Play}
+                  onAction={() => handleMediaControl("play")}
+                />
+                <Action
+                  title="Refresh"
+                  icon={Icon.ArrowClockwise}
+                  onAction={refreshMediaInfo}
+                  shortcut={{ modifiers: ["cmd"], key: "r" }}
+                />
+              </ActionPanel>
+            }
+          />
+
+          {previousSessions.length > 0 && (
+            <List.Section title="Previous Streams">
+              {previousSessions.map((ps, idx) => (
+                <List.Item
+                  key={`${ps.appDisplayName}-${ps.title}-${idx}`}
+                  title={ps.title}
+                  subtitle={`${ps.appDisplayName}${ps.channelName ? " • " + ps.channelName : ""}`}
+                  accessories={[{ text: ps.isLive ? "🔴 LIVE" : ps.sourceType }]}
+                  icon={{ source: getMediaIcon(ps.sourceType), tintColor: getMediaIconColor(ps.sourceType) }}
+                  actions={
+                    <ActionPanel>
+                      <Action
+                        title="Play (Global)"
+                        icon={Icon.Play}
+                        onAction={() => handleMediaControl("play")}
+                      />
+                    </ActionPanel>
+                  }
+                />
+              ))}
+            </List.Section>
+          )}
+        </>
       ) : (
         <>
           {/* Current Track Info */}
@@ -330,6 +378,30 @@ export default function MediaControl() {
               />
             )}
           </List.Section>
+
+          {/* Previous Streams (history) */}
+          {previousSessions.length > 0 && (
+            <List.Section title="Previous Streams">
+              {previousSessions.map((ps, idx) => (
+                <List.Item
+                  key={`${ps.appDisplayName}-${ps.title}-${idx}`}
+                  title={ps.title}
+                  subtitle={`${ps.appDisplayName}${ps.channelName ? " • " + ps.channelName : ""}`}
+                  accessories={[{ text: ps.isLive ? "🔴 LIVE" : ps.sourceType }]}
+                  icon={{ source: getMediaIcon(ps.sourceType), tintColor: getMediaIconColor(ps.sourceType) }}
+                  actions={
+                    <ActionPanel>
+                      <Action
+                        title="Play (Global)"
+                        icon={Icon.Play}
+                        onAction={() => handleMediaControl("play")}
+                      />
+                    </ActionPanel>
+                  }
+                />
+              ))}
+            </List.Section>
+          )}
 
           {/* Playback Controls */}
           <List.Section title="Playback Controls">

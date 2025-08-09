@@ -447,6 +447,12 @@ public class KbdSender {
   [DllImport("user32.dll", SetLastError=true)]
   public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 }
+public static class AppCommandSender {
+  public const int WM_APPCOMMAND = 0x0319;
+  public const int APPCOMMAND_MEDIA_PLAY = 46; // 0x2E
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+  public static extern IntPtr SendMessageW(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+}
 "@
 $vk = 0xAF # VOL_UP
 switch ($Action) {
@@ -512,14 +518,14 @@ try {
     try {
       $sessions = $mgr.GetSessions()
       if ($sessions) {
-        # Prefer playing sessions that match the foreground app name within AUMID
+        # Prefer sessions that match the foreground app name within AUMID (any status)
         if ($ForegroundProcessName) {
           foreach ($sess in $sessions) {
             try {
               $info = $sess.GetPlaybackInfo()
               $status = $info.PlaybackStatus
               $appId = ($sess.SourceAppUserModelId | Out-String).Trim().ToLower()
-              if ($status -eq [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing -and $appId -match [regex]::Escape($ForegroundProcessName)) {
+              if ($appId -match [regex]::Escape($ForegroundProcessName)) {
                 $target = $sess; break
               }
             } catch {}
@@ -542,6 +548,22 @@ try {
         'toggle'   { [void](Wait-AsyncOperation -Operation $target.TryTogglePlayPauseAsync()) }
         'next'     { [void](Wait-AsyncOperation -Operation $target.TrySkipNextAsync()) }
         'previous' { [void](Wait-AsyncOperation -Operation $target.TrySkipPreviousAsync()) }
+      }
+    } elseif ($sessions) {
+      # No specific target; broadcast to sessions for play/pause cases
+      if ($Action -eq 'play') {
+        foreach ($sess in $sessions) {
+          try { [void](Wait-AsyncOperation -Operation $sess.TryPlayAsync()); $usedSmTc = $true } catch {}
+        }
+      } elseif ($Action -eq 'pause') {
+        foreach ($sess in $sessions) {
+          try {
+            $info = $sess.GetPlaybackInfo()
+            if ($info.PlaybackStatus -eq [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing) {
+              [void](Wait-AsyncOperation -Operation $sess.TryPauseAsync()); $usedSmTc = $true
+            }
+          } catch {}
+        }
       }
     }
   }
@@ -569,6 +591,16 @@ try {
   Start-Sleep -Milliseconds 10
   [KbdSender]::keybd_event([byte]$vk, 0, 2, [UIntPtr]::Zero) # KEYEVENTF_KEYUP = 2
 } catch {}
+
+# If we didn't use SMTC and the requested action is explicit 'play',
+# also broadcast WM_APPCOMMAND MEDIA_PLAY to help resume certain apps (e.g., Spotify)
+if ((-not $usedSmTc) -and ($Action -eq 'play')) {
+  try {
+    $HWND_BROADCAST = [IntPtr]65535
+    $cmd = [IntPtr]([AppCommandSender]::APPCOMMAND_MEDIA_PLAY -shl 16)
+    [void][AppCommandSender]::SendMessageW($HWND_BROADCAST, [AppCommandSender]::WM_APPCOMMAND, [IntPtr]::Zero, $cmd)
+  } catch {}
+}
 
 if ($usedSmTc) { $pathLabel = "SMTC+VK" } else { $pathLabel = "VK" }
 Write-Output ("OK " + $pathLabel)

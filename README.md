@@ -107,6 +107,13 @@ This extension works with any Windows application that implements the Windows Me
 
 ## Changelog
 
+- 2025-08-09
+  - Close Raycast window before sending media/volume controls to avoid focus intercepting media keys (`closeMainWindow()` in `src/media-control.tsx`).
+  - Run PowerShell control scripts with `-STA` for improved reliability.
+  - Improve SMTC targeting: prefer session matching the foreground app AUMID, then any playing, else current.
+  - Always synthesize a media key via `user32.dll` after SMTC call to ensure the action applies across apps.
+  - Preserve last known media session in UI when detection temporarily returns null (mark as paused) for easier resume.
+
 - 2025-08-09: Added explicit YouTube detection for Microsoft Edge and Firefox. Switched media detection PowerShell execution to `-File` to avoid command-line length limits.
 - 2025-08-09: Added explicit YouTube detection for Zen Browser (supports hyphen or em dash before "Zen Browser").
 - 2025-08-09: Implemented smart selection scoring (video-first, live bonus, paused penalty) to pick the most relevant active session.
