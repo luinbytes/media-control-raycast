@@ -570,7 +570,8 @@ try {
   [KbdSender]::keybd_event([byte]$vk, 0, 2, [UIntPtr]::Zero) # KEYEVENTF_KEYUP = 2
 } catch {}
 
-Write-Output ("OK " + ($usedSmTc ? "SMTC+VK" : "VK"))
+if ($usedSmTc) { $pathLabel = "SMTC+VK" } else { $pathLabel = "VK" }
+Write-Output ("OK " + $pathLabel)
 `;
 
     const psPath = path.join(os.tmpdir(), "raycast_media_control.ps1");
