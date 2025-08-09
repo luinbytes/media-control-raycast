@@ -6,6 +6,31 @@ import path from "path";
 
 const execAsync = promisify(exec);
 
+/**
+ * Create a unique temp PowerShell file safely to avoid EBUSY collisions
+ */
+function createTempPsFile(prefix: string, contents: string): string {
+  const tmp = os.tmpdir();
+  for (let i = 0; i < 5; i++) {
+    const name = `${prefix}_${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2)}.ps1`;
+    const psPath = path.join(tmp, name);
+    try {
+      fs.writeFileSync(psPath, contents, { encoding: "utf8", flag: "wx" });
+      return psPath;
+    } catch (e: any) {
+      // If file exists or resource busy, try another name
+      if (e && (e.code === "EEXIST" || e.code === "EBUSY")) {
+        continue;
+      }
+      throw e;
+    }
+  }
+  // Final attempt without exclusive flag
+  const fallback = path.join(os.tmpdir(), `${prefix}_${process.pid}_${Date.now()}.ps1`);
+  fs.writeFileSync(fallback, contents, { encoding: "utf8" });
+  return fallback;
+}
+
 export interface MediaSession {
   title: string;
   artist?: string;
@@ -388,11 +413,11 @@ Write-Output ""
  * Get the current active media session
  */
 export async function getCurrentMediaSession(): Promise<MediaSession | null> {
+  let psPath: string | null = null;
   try {
     // Write script to a temporary .ps1 file to avoid command-line length limits
     const psScript = GET_MEDIA_SESSION_SCRIPT;
-    const psPath = path.join(os.tmpdir(), "raycast_media_detect.ps1");
-    fs.writeFileSync(psPath, psScript, { encoding: "utf8" });
+    psPath = createTempPsFile("raycast_media_detect", psScript);
 
     const { stdout, stderr } = await execAsync(
       `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}"`
@@ -429,6 +454,10 @@ export async function getCurrentMediaSession(): Promise<MediaSession | null> {
   } catch (error) {
     // Print minimal diagnostics to help debugging when running inside Raycast
     console.error("Media session detection failed:", error);
+  } finally {
+    if (psPath) {
+      try { fs.unlinkSync(psPath); } catch {}
+    }
   }
   
   return null;
@@ -438,6 +467,7 @@ export async function getCurrentMediaSession(): Promise<MediaSession | null> {
  * Control volume using basic Windows system volume controls
  */
 export async function controlAppVolume(action: "up" | "down" | "mute"): Promise<boolean> {
+  let psPath: string | null = null;
   try {
     const ps = `param([string]$Action)
 Add-Type -TypeDefinition @"
@@ -467,8 +497,7 @@ try {
   'OK'
 } catch { 'ERR' }
 `;
-    const psPath = path.join(os.tmpdir(), "raycast_volume_keys.ps1");
-    fs.writeFileSync(psPath, ps, { encoding: "utf8" });
+    psPath = createTempPsFile("raycast_volume_keys", ps);
     const { stdout } = await execAsync(`powershell -STA -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}" -Action ${action}`);
     const ok = stdout.trim().includes("OK");
     if (ok) console.log(`Volume ${action} successful`);
@@ -476,6 +505,8 @@ try {
   } catch (error) {
     console.error(`Error in controlAppVolume:`, error);
     return false;
+  } finally {
+    if (psPath) { try { fs.unlinkSync(psPath); } catch {} }
   }
 }
 
@@ -624,6 +655,7 @@ Write-Output ("OK " + $pathLabel)
  * Get volume level (0-100)
  */
 export async function getVolume(): Promise<number | null> {
+  let psPath: string | null = null;
   try {
     const script = `
 try {
@@ -646,14 +678,15 @@ public class VolumeHelper {
   [VolumeHelper]::GetVolume() | Out-Host
 } catch { "50" | Out-Host }
 `;
-    const psPath = path.join(os.tmpdir(), "raycast_get_volume.ps1");
-    fs.writeFileSync(psPath, script, { encoding: "utf8" });
+    psPath = createTempPsFile("raycast_get_volume", script);
     const { stdout } = await execAsync(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}"`);
     const volume = parseInt(stdout.trim());
     return isNaN(volume) ? 50 : Math.max(0, Math.min(100, volume));
   } catch (error) {
     console.error("Error getting volume:", error);
     return 50; // Default fallback
+  } finally {
+    if (psPath) { try { fs.unlinkSync(psPath); } catch {} }
   }
 }
 
@@ -661,6 +694,7 @@ public class VolumeHelper {
  * Set system volume (0-100)
  */
 export async function setVolume(volume: number): Promise<boolean> {
+  let psPath: string | null = null;
   try {
     const clampedVolume = Math.max(0, Math.min(100, volume));
     
@@ -682,13 +716,14 @@ public class VolumeControl {
 [VolumeControl]::SetVolume($Target)
 Write-Output "Success"
 `;
-    const psPath = path.join(os.tmpdir(), "raycast_set_volume.ps1");
-    fs.writeFileSync(psPath, script, { encoding: "utf8" });
+    psPath = createTempPsFile("raycast_set_volume", script);
     const { stdout } = await execAsync(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}" -Target ${clampedVolume}`);
     return stdout.trim().includes("Success");
   } catch (error) {
     console.error(`Error setting volume to ${volume}:`, error);
     return false;
+  } finally {
+    if (psPath) { try { fs.unlinkSync(psPath); } catch {} }
   }
 }
 

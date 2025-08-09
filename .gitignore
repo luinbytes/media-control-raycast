@@ -58,3 +58,6 @@ temp/
 
 # Raycast specific
 .raycast/
+
+# PowerShell temp scripts (safety; actual temp files live outside repo)
+raycast_*.ps1

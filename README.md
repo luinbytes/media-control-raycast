@@ -105,25 +105,21 @@ This extension works with any Windows application that implements the Windows Me
 4. **Control Commands:** Sends media control commands through Windows APIs
 5. **Volume Management:** Integrates with Windows audio system for volume control
 
+#### Temp Script Strategy
+- All PowerShell code is written to uniquely named temp `.ps1` files via `createTempPsFile()` to avoid collisions.
+- Files are opened with an exclusive write flag and removed in a `finally` block after execution to prevent lingering locked files and EBUSY errors.
+- Applied to detection (`getCurrentMediaSession()`), media controls, and volume functions.
+
 ## Changelog
 
-- 2025-08-09
-  - Close Raycast window before sending media/volume controls to avoid focus intercepting media keys (`closeMainWindow()` in `src/media-control.tsx`).
-  - Run PowerShell control scripts with `-STA` for improved reliability.
-  - Improve SMTC targeting: prefer session matching the foreground app AUMID, then any playing, else current.
-  - Always synthesize a media key via `user32.dll` after SMTC call to ensure the action applies across apps.
-  - Preserve last known media session in UI when detection temporarily returns null (mark as paused) for easier resume.
-  - Correctly classify browser-based YouTube as `video` (no longer `unknown`) and avoid showing the channel as literal "YouTube" when channel metadata is unavailable.
-
-- 2025-08-09: Added explicit YouTube detection for Microsoft Edge and Firefox. Switched media detection PowerShell execution to `-File` to avoid command-line length limits.
-- 2025-08-09: Added explicit YouTube detection for Zen Browser (supports hyphen or em dash before "Zen Browser").
-- 2025-08-09: Implemented smart selection scoring (video-first, live bonus, paused penalty) to pick the most relevant active session.
-- 2025-08-09: Implemented Hybrid detection (SMTC-first with browser window-title fallback) in the embedded script and test script.
-- 2025-08-09: Added foreground-window bonus to scoring.
-- 2025-08-09: Switched PowerShell invocation to write a temp .ps1 and run with -File (avoids long -EncodedCommand errors).
-- 2025-08-09: Window-title fallback scoring now applies a paused-title penalty and consistent foreground bonus so playing sessions (e.g., Spotify) beat paused browser tabs (Zen/Brave/Chrome/Edge/Firefox).
-- 2025-08-09: Media controls now use SMTC (TryPlay/Pause/Toggle/Next/Previous) with SendKeys fallback for reliability.
-- 2025-08-09: Volume functions (get/set/up/down/mute) refactored to execute via temp .ps1 with -File (avoids command length limits).
+### v1.0.0 - 2025-08-09
+- **Major Refactor:** Complete rewrite of media detection and control system
+- **Smart Media Detection:** Hybrid SMTC + window-title approach with intelligent scoring (video-first, live bonus, paused penalty, foreground bonus)
+- **Enhanced Browser Support:** Explicit YouTube detection for Chrome, Brave, Edge, Firefox, and Zen Browser (supports various dash formats)
+- **Improved Reliability:** All PowerShell scripts now use temp files with `-File` execution to avoid command-line length limits and EBUSY errors
+- **Better UX:** Close Raycast window before media controls, preserve last session when detection fails, correct video classification for YouTube
+- **Robust Controls:** SMTC-based media controls with SendKeys fallback and synthetic media key injection via user32.dll
+- **Volume Management:** Refactored volume functions to use temp file execution with `-STA` threading for improved stability
 
 ### Performance
 - **Lightweight:** Minimal resource usage with efficient polling
