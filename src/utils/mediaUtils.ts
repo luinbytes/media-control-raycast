@@ -1,5 +1,8 @@
 import { exec } from "child_process";
 import { promisify } from "util";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 const execAsync = promisify(exec);
 
@@ -359,11 +362,13 @@ Write-Output ""
  */
 export async function getCurrentMediaSession(): Promise<MediaSession | null> {
   try {
-    // Use PowerShell EncodedCommand to avoid quoting/escaping issues
+    // Write script to a temporary .ps1 file to avoid command-line length limits
     const psScript = GET_MEDIA_SESSION_SCRIPT;
-    const encoded = Buffer.from(psScript, "utf16le").toString("base64");
+    const psPath = path.join(os.tmpdir(), "raycast_media_detect.ps1");
+    fs.writeFileSync(psPath, psScript, { encoding: "utf8" });
+
     const { stdout, stderr } = await execAsync(
-      `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`
+      `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}"`
     );
 
     if (stdout && stdout.trim()) {
