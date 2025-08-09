@@ -10,6 +10,10 @@ A seamless Windows media control extension for Raycast that automatically detect
 - Explicit YouTube title detection for Chrome, Brave, Microsoft Edge, Firefox, and Zen Browser
 - Real-time updates of playback status and track information
 
+#### Hybrid Detection
+- Uses SMTC (Global System Media Transport Controls) sessions first for rich metadata and reliability.
+- Falls back to window-title parsing for browsers to accurately detect YouTube titles (and Zen’s various dashes).
+
 #### Smart Selection (Option C)
 - Prioritizes likely video sources (YouTube in browsers) over music when appropriate.
 - Favors live streams (small bonus) and penalizes paused sessions.
@@ -105,6 +109,7 @@ This extension works with any Windows application that implements the Windows Me
 - 2025-08-09: Added explicit YouTube detection for Microsoft Edge and Firefox. Switched media detection PowerShell execution to `-File` to avoid command-line length limits.
 - 2025-08-09: Added explicit YouTube detection for Zen Browser (supports hyphen or em dash before "Zen Browser").
 - 2025-08-09: Implemented smart selection scoring (video-first, live bonus, paused penalty) to pick the most relevant active session.
+- 2025-08-09: Implemented Hybrid detection (SMTC-first with browser window-title fallback) in the embedded script and test script.
 
 ### Performance
 - **Lightweight:** Minimal resource usage with efficient polling

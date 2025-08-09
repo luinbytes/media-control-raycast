@@ -60,6 +60,132 @@ Write-Host "Found $($processes.Count) processes with window titles"
 # Priorities: lower is better
 $candidates = @()
 
+# Determine foreground process name for bonus
+Add-Type -Namespace Win32 -Name Native -MemberDefinition @"
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr hWnd, out uint lpdwProcessId);
+"@
+$hWnd = [Win32.Native]::GetForegroundWindow()
+$fgPid = 0
+[Win32.Native]::GetWindowThreadProcessId($hWnd, [ref]$fgPid) | Out-Null
+$ForegroundProcessName = $null
+if ($fgPid -ne 0) {
+    try { $ForegroundProcessName = (Get-Process -Id $fgPid -ErrorAction Stop).ProcessName.ToLower() } catch {}
+}
+Write-Host "Foreground process: $ForegroundProcessName"
+
+# Helper to wait WinRT IAsyncOperation without WindowsRuntimeSystemExtensions
+function Wait-AsyncOperation {
+    param(
+        [Parameter(Mandatory=$true)] $Operation,
+        [int] $TimeoutMs = 5000,
+        [int] $PollMs = 50
+    )
+    if ($null -eq $Operation) { return $null }
+    if (-not ($Operation | Get-Member -Name Status -ErrorAction SilentlyContinue)) { return $null }
+    $elapsed = 0
+    while ($Operation.Status.ToString() -eq 'Started' -and $elapsed -lt $TimeoutMs) {
+        Start-Sleep -Milliseconds $PollMs
+        $elapsed += $PollMs
+    }
+    if ($Operation.Status.ToString() -eq 'Completed') {
+        return $Operation.GetResults()
+    } else {
+        Write-Host "SMTC: Async op did not complete (Status=$($Operation.Status))"
+        return $null
+    }
+}
+
+# Try SMTC (Global System Media Transport Controls) first
+function Get-SmtcCandidates {
+    param()
+    $localCandidates = @()
+    try {
+        $mgrOp = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime]::RequestAsync()
+        if ($null -eq $mgrOp) { Write-Host "SMTC: RequestAsync() returned null"; return ,$localCandidates }
+        $mgr = Wait-AsyncOperation -Operation $mgrOp
+        if ($null -eq $mgr) { Write-Host "SMTC: Manager unavailable (GetResults null)"; return ,$localCandidates }
+        if ($mgr -ne $null) {
+            $sessions = $mgr.GetSessions()
+            Write-Host "SMTC: Manager acquired. Sessions=$($sessions.Count)"
+            foreach ($s in $sessions) {
+                try {
+                    $info = $s.GetPlaybackInfo()
+                    $status = $info.PlaybackStatus
+                    $propsOp = $s.TryGetMediaPropertiesAsync()
+                    $props = Wait-AsyncOperation -Operation $propsOp
+                    $appId = ($s.SourceAppUserModelId | Out-String).Trim()
+                    $titleSm = ($props.Title | Out-String).Trim()
+                    $artistSm = ($props.Artist | Out-String).Trim()
+                    $albumSm = ($props.AlbumTitle | Out-String).Trim()
+
+                    Write-Host "SMTC: AppId='$appId' Status=$status Title='${titleSm}'"
+                    if (-not $titleSm) { Write-Host "SMTC: Skipping (empty title)"; continue }
+
+                    $isPlaying = ($status -eq [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing)
+
+                    # Identify app from AUMID
+                    $appLower = $appId.ToLower()
+                    $isBrowser = ($appLower -match 'chrome|brave|edge|firefox|zen')
+                    $isSpotify = ($appLower -match 'spotify')
+
+                    $sessionInfo = @{
+                        Title = $titleSm
+                        Artist = (if ($artistSm) { $artistSm } elseif ($isSpotify) { "Spotify" } elseif ($isBrowser) { "YouTube" } else { $appId })
+                        Album = (if ($albumSm) { $albumSm } else { $null })
+                        AppName = $appId
+                        IsPlaying = $isPlaying
+                        CanPlay = $true
+                        CanPause = $true
+                        CanSkipNext = $true
+                        CanSkipPrevious = $true
+                        Duration = $null
+                        Position = $null
+                        Genre = $null
+                    }
+
+                    # Scoring: prefer playing; base by type; live bonus; foreground bonus
+                    $base = if ($isSpotify) { 80 } elseif ($isBrowser) { 75 } else { 78 }
+                    $bonusLive = if ($sessionInfo.Title -match '(?i)live|🔴') { 20 } else { 0 }
+                    $penaltyPaused = if ($isPlaying) { 0 } else { 20 }
+                    $bonusFg = 0
+                    if ($ForegroundProcessName) {
+                        $appLower = $appId.ToLower()
+                        if ($appLower -match [regex]::Escape($ForegroundProcessName)) { $bonusFg = 12 }
+                    }
+                    $score = $base + $bonusLive + $bonusFg - $penaltyPaused
+                    Write-Host "SMTC -> $appId : '$titleSm' (playing:$isPlaying) score:$score"
+                    $localCandidates += @{ Score = $score; Session = $sessionInfo }
+                } catch {
+                    Write-Host "SMTC: Error processing session: $_"
+                }
+            }
+        }
+    } catch {
+        Write-Host "SMTC: Manager error: $_"
+    }
+    return ,$localCandidates
+}
+
+Write-Host "SMTC: ApartmentState=$([Threading.Thread]::CurrentThread.ApartmentState)"
+if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
+    Write-Host "SMTC: Spawning STA runspace for WinRT access"
+    $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    $rs = [runspacefactory]::CreateRunspace($iss)
+    $rs.ApartmentState = 'STA'
+    $rs.Open()
+    $ps = [powershell]::Create()
+    $ps.Runspace = $rs
+    $ps.AddScript(${function:Get-SmtcCandidates}.ToString()) | Out-Null
+    $ps.AddScript('Get-SmtcCandidates') | Out-Null
+    $result = $ps.Invoke()
+    $ps.Dispose()
+    $rs.Dispose()
+    if ($result) { $candidates += $result }
+} else {
+    $candidates += Get-SmtcCandidates
+}
+
 foreach ($process in $processes) {
     $processName = $process.ProcessName.ToLower()
     Write-Host "Checking process: $processName"
@@ -103,7 +229,10 @@ foreach ($process in $processes) {
                 default { 70 }
             }
             $penaltyPaused = 20
-            $score = $base - $penaltyPaused
+            $bonusFg = 0
+            if ($ForegroundProcessName -and $processName -eq $ForegroundProcessName) { $bonusFg = 12 }
+            Write-Host "  Foreground bonus: $bonusFg"
+            $score = $base + $bonusFg - $penaltyPaused
             Write-Host "    Candidate score: $score (playing:$($sessionInfo.IsPlaying))"
             $candidates += @{ Score = $score; Session = $sessionInfo }
         } elseif ($title -match $mediaApp.titlePattern) {

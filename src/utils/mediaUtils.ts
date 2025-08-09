@@ -99,6 +99,77 @@ $processes = Get-Process | Where-Object { $_.MainWindowTitle -ne "" }
 # Collect candidates and pick the best by score
 $candidates = @()
 
+# Helper to wait WinRT IAsyncOperation without WindowsRuntimeSystemExtensions
+function Wait-AsyncOperation {
+    param(
+        [Parameter(Mandatory=$true)] $Operation,
+        [int] $TimeoutMs = 5000,
+        [int] $PollMs = 50
+    )
+    $elapsed = 0
+    while ($Operation.Status.ToString() -eq 'Started' -and $elapsed -lt $TimeoutMs) {
+        Start-Sleep -Milliseconds $PollMs
+        $elapsed += $PollMs
+    }
+    if ($Operation.Status.ToString() -eq 'Completed') {
+        return $Operation.GetResults()
+    } else {
+        return $null
+    }
+}
+
+# Try SMTC (Global System Media Transport Controls) first
+try {
+    $mgrOp = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime]::RequestAsync()
+    $mgr = Wait-AsyncOperation -Operation $mgrOp
+    if ($mgr -ne $null) {
+        $sessions = $mgr.GetSessions()
+        foreach ($s in $sessions) {
+            try {
+                $info = $s.GetPlaybackInfo()
+                $status = $info.PlaybackStatus
+                $propsOp = $s.TryGetMediaPropertiesAsync()
+                $props = Wait-AsyncOperation -Operation $propsOp
+                $appId = ($s.SourceAppUserModelId | Out-String).Trim()
+                $titleSm = ($props.Title | Out-String).Trim()
+                $artistSm = ($props.Artist | Out-String).Trim()
+                $albumSm = ($props.AlbumTitle | Out-String).Trim()
+
+                if (-not $titleSm) { continue }
+
+                $isPlaying = ($status -eq [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing)
+
+                # Identify app from AUMID
+                $appLower = $appId.ToLower()
+                $isBrowser = ($appLower -match 'chrome|brave|edge|firefox|zen')
+                $isSpotify = ($appLower -match 'spotify')
+
+                $sessionInfo = @{
+                    Title = $titleSm
+                    Artist = (if ($artistSm) { $artistSm } elseif ($isSpotify) { "Spotify" } elseif ($isBrowser) { "YouTube" } else { $appId })
+                    Album = (if ($albumSm) { $albumSm } else { $null })
+                    AppName = $appId
+                    IsPlaying = $isPlaying
+                    CanPlay = $true
+                    CanPause = $true
+                    CanSkipNext = $true
+                    CanSkipPrevious = $true
+                    Duration = $null
+                    Position = $null
+                    Genre = $null
+                }
+
+                # Scoring: prefer playing; base by type; live bonus
+                $base = if ($isSpotify) { 80 } elseif ($isBrowser) { 75 } else { 78 }
+                $bonusLive = if ($sessionInfo.Title -match '(?i)live|🔴') { 20 } else { 0 }
+                $penaltyPaused = if ($isPlaying) { 0 } else { 20 }
+                $score = $base + $bonusLive - $penaltyPaused
+                $candidates += @{ Score = $score; Session = $sessionInfo }
+            } catch {}
+        }
+    }
+} catch {}
+
 foreach ($process in $processes) {
     $processName = $process.ProcessName.ToLower()
     $title = $process.MainWindowTitle
