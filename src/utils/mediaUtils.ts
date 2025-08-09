@@ -194,17 +194,27 @@ foreach ($process in $processes) {
     $processName = $process.ProcessName.ToLower()
     $title = $process.MainWindowTitle
     
+    # Determine paused status from configured pausedPattern and compute foreground bonus
+    $appConf = $mediaApps[$processName]
+    $isPausedTitle = $false
+    if ($appConf -and $appConf.pausedPattern) {
+        try { if ($title -match $appConf.pausedPattern) { $isPausedTitle = $true } } catch {}
+    }
+    $fgBonus = 0
+    if ($ForegroundProcessName -and ($process.ProcessName.ToLower() -eq $ForegroundProcessName)) { $fgBonus = 12 }
+    
     # Check Spotify
     if ($processName -eq "spotify" -and $title -match '^(.+) - (.+)$') {
         $artist = $matches[1]
         $songTitle = $matches[2]
         
+        $isPlaying = (-not $isPausedTitle)
         $sessionInfo = @{
             Title = $songTitle
             Artist = $artist
             Album = $null
             AppName = $process.ProcessName
-            IsPlaying = $true
+            IsPlaying = $isPlaying
             CanPlay = $true
             CanPause = $true
             CanSkipNext = $true
@@ -217,6 +227,8 @@ foreach ($process in $processes) {
         # Score: base 80 for Spotify (music)
         $score = 80
         if ($sessionInfo.Title -match '(?i)live|🔴') { $score += 5 }
+        $score += $fgBonus
+        if (-not $isPlaying) { $score -= 20 }
         $candidates += @{ Score = $score; Session = $sessionInfo }
     }
     
@@ -224,12 +236,13 @@ foreach ($process in $processes) {
     if ($processName -eq "brave" -and $title -match '^(.+) - YouTube - Brave$') {
         $videoTitle = $matches[1]
         
+        $isPlaying = (-not $isPausedTitle)
         $sessionInfo = @{
             Title = $videoTitle
             Artist = "YouTube"
             Album = $null
             AppName = $process.ProcessName
-            IsPlaying = $true
+            IsPlaying = $isPlaying
             CanPlay = $true
             CanPause = $true
             CanSkipNext = $true
@@ -242,6 +255,8 @@ foreach ($process in $processes) {
         # Score: base 90 for YouTube video in Brave
         $score = 90
         if ($sessionInfo.Title -match '(?i)live|🔴') { $score += 5 }
+        $score += $fgBonus
+        if (-not $isPlaying) { $score -= 20 }
         $candidates += @{ Score = $score; Session = $sessionInfo }
     }
     
@@ -249,12 +264,13 @@ foreach ($process in $processes) {
     if ($processName -eq "chrome" -and $title -match '^(.+) - YouTube - Google Chrome$') {
         $videoTitle = $matches[1]
         
+        $isPlaying = (-not $isPausedTitle)
         $sessionInfo = @{
             Title = $videoTitle
             Artist = "YouTube"
             Album = $null
             AppName = $process.ProcessName
-            IsPlaying = $true
+            IsPlaying = $isPlaying
             CanPlay = $true
             CanPause = $true
             CanSkipNext = $true
@@ -267,6 +283,8 @@ foreach ($process in $processes) {
         # Score: base 90 for YouTube video in Chrome
         $score = 90
         if ($sessionInfo.Title -match '(?i)live|🔴') { $score += 5 }
+        $score += $fgBonus
+        if (-not $isPlaying) { $score -= 20 }
         $candidates += @{ Score = $score; Session = $sessionInfo }
     }
     
@@ -274,12 +292,13 @@ foreach ($process in $processes) {
     if ($processName -eq "msedge" -and $title -match '^(.+) - YouTube - Microsoft.*Edge$') {
         $videoTitle = $matches[1]
         
+        $isPlaying = (-not $isPausedTitle)
         $sessionInfo = @{
             Title = $videoTitle
             Artist = "YouTube"
             Album = $null
             AppName = $process.ProcessName
-            IsPlaying = $true
+            IsPlaying = $isPlaying
             CanPlay = $true
             CanPause = $true
             CanSkipNext = $true
@@ -292,6 +311,8 @@ foreach ($process in $processes) {
         # Score: base 90 for YouTube video in Edge
         $score = 90
         if ($sessionInfo.Title -match '(?i)live|🔴') { $score += 5 }
+        $score += $fgBonus
+        if (-not $isPlaying) { $score -= 20 }
         $candidates += @{ Score = $score; Session = $sessionInfo }
     }
     
@@ -299,12 +320,13 @@ foreach ($process in $processes) {
     if ($processName -eq "firefox" -and $title -match '^(.+) - YouTube - Mozilla Firefox$') {
         $videoTitle = $matches[1]
         
+        $isPlaying = (-not $isPausedTitle)
         $sessionInfo = @{
             Title = $videoTitle
             Artist = "YouTube"
             Album = $null
             AppName = $process.ProcessName
-            IsPlaying = $true
+            IsPlaying = $isPlaying
             CanPlay = $true
             CanPause = $true
             CanSkipNext = $true
@@ -317,6 +339,8 @@ foreach ($process in $processes) {
         # Score: base 75 for YouTube video in Firefox (non-live)
         $score = 75
         if ($sessionInfo.Title -match '(?i)live|🔴') { $score += 20 }
+        $score += $fgBonus
+        if (-not $isPlaying) { $score -= 20 }
         $candidates += @{ Score = $score; Session = $sessionInfo }
     }
     
@@ -324,12 +348,13 @@ foreach ($process in $processes) {
     if ($processName -eq "zen" -and $title -match '^(.+) - YouTube \\s*[\\u2014\\u2013\-]\\s*Zen( Browser)?$') {
         $videoTitle = $matches[1]
         
+        $isPlaying = (-not $isPausedTitle)
         $sessionInfo = @{
             Title = $videoTitle
             Artist = "YouTube"
             Album = $null
             AppName = $process.ProcessName
-            IsPlaying = $true
+            IsPlaying = $isPlaying
             CanPlay = $true
             CanPause = $true
             CanSkipNext = $true
@@ -342,6 +367,8 @@ foreach ($process in $processes) {
         # Score: base 77 for YouTube video in Zen (non-live)
         $score = 77
         if ($sessionInfo.Title -match '(?i)live|🔴') { $score += 20 }
+        $score += $fgBonus
+        if (-not $isPlaying) { $score -= 20 }
         $candidates += @{ Score = $score; Session = $sessionInfo }
     }
 }
