@@ -27,7 +27,7 @@ export default function MediaControl() {
   const [mediaSession, setMediaSession] = useState<MediaSession | null>(null);
   const [volume, setVolumeState] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  // Removed lastRefresh display; we still auto-refresh on mount and interval
   const [previousSessions, setPreviousSessions] = useState<MediaSession[]>([]);
   
   const preferences = getPreferenceValues<Preferences>();
@@ -64,7 +64,7 @@ export default function MediaControl() {
         setMediaSession(session);
       }
       setVolumeState(currentVolume);
-      setLastRefresh(new Date());
+      // lastRefresh removed from UI
     } catch (error) {
       console.error("Failed to refresh media info:", error);
     } finally {
@@ -156,15 +156,6 @@ export default function MediaControl() {
   const getPlaybackColor = () => {
     if (!mediaSession) return Color.SecondaryText;
     return mediaSession.isPlaying ? Color.Green : Color.Orange;
-  };
-
-  const formatLastRefresh = () => {
-    const now = new Date();
-    const diff = Math.floor((now.getTime() - lastRefresh.getTime()) / 1000);
-    
-    if (diff < 60) return `${diff}s ago`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    return `${Math.floor(diff / 3600)}h ago`;
   };
 
   const getMediaSubtitle = (session: MediaSession) => {
@@ -495,24 +486,7 @@ export default function MediaControl() {
             </List.Section>
           )}
 
-          {/* Status Info */}
-          <List.Section title="Status">
-            <List.Item
-              title="Last Updated"
-              subtitle={formatLastRefresh()}
-              icon={{ source: Icon.Clock, tintColor: Color.SecondaryText }}
-              actions={
-                <ActionPanel>
-                  <Action
-                    title="Refresh Now"
-                    icon={Icon.ArrowClockwise}
-                    onAction={refreshMediaInfo}
-                    shortcut={{ modifiers: ["cmd"], key: "r" }}
-                  />
-                </ActionPanel>
-              }
-            />
-          </List.Section>
+          {/* Status section removed per request */}
         </>
       )}
     </List>
