@@ -8,6 +8,7 @@ import {
   Toast,
   showToast,
   getPreferenceValues,
+  closeMainWindow,
 } from "@raycast/api";
 import {
   getCurrentMediaSession,
@@ -60,10 +61,12 @@ export default function MediaControl() {
     return () => clearInterval(interval);
   }, [refreshInterval]);
 
-  const handleMediaControl = async (action: "play" | "pause" | "next" | "previous" | "toggle") => {
+  const handleMediaControl = async (action: "play" | "pause" | "next" | "previous" | "toggl") => {
     setIsLoading(true);
     
     try {
+      // Prevent Raycast window from capturing media keys
+      await closeMainWindow();
       const success = await controlMedia(action);
       
       if (success) {
@@ -72,6 +75,9 @@ export default function MediaControl() {
           title: `Media ${action}`,
           message: `Successfully ${action}ed media`,
         });
+        // Give OS a moment to update SMTC, then refresh
+        await new Promise((r) => setTimeout(r, 150));
+        await refreshMediaInfo();
       } else {
         await showToast({
           style: Toast.Style.Failure,
@@ -94,6 +100,7 @@ export default function MediaControl() {
     setIsLoading(true);
     
     try {
+      await closeMainWindow();
       const success = await controlAppVolume(action);
       
       if (success) {
@@ -103,6 +110,7 @@ export default function MediaControl() {
           message: `Volume ${action === "up" ? "increased" : action === "down" ? "decreased" : "muted/unmuted"}`,
         });
         // Refresh to get updated info
+        await new Promise((r) => setTimeout(r, 150));
         await refreshMediaInfo();
       } else {
         await showToast({

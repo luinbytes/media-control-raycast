@@ -463,7 +463,7 @@ try {
 `;
     const psPath = path.join(os.tmpdir(), "raycast_volume_keys.ps1");
     fs.writeFileSync(psPath, ps, { encoding: "utf8" });
-    const { stdout } = await execAsync(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}" -Action ${action}`);
+    const { stdout } = await execAsync(`powershell -STA -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}" -Action ${action}`);
     const ok = stdout.trim().includes("OK");
     if (ok) console.log(`Volume ${action} successful`);
     return ok;
@@ -577,7 +577,7 @@ Write-Output ("OK " + $pathLabel)
     const psPath = path.join(os.tmpdir(), "raycast_media_control.ps1");
     fs.writeFileSync(psPath, ps, { encoding: "utf8" });
 
-    const { stdout } = await execAsync(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}" -Action ${action}`);
+    const { stdout } = await execAsync(`powershell -STA -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}" -Action ${action}`);
     const out = stdout.trim();
     const ok = out.includes("OK");
     if (ok) console.log(`Media ${action} successful (${out})`);
