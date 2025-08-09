@@ -18,6 +18,7 @@ A seamless Windows media control extension for Raycast that automatically detect
 - Prioritizes likely video sources (YouTube in browsers) over music when appropriate.
 - Favors live streams (small bonus) and penalizes paused sessions.
 - If browsers are paused and Spotify is playing, Spotify will be selected.
+- Applies a small bonus when the media app is in the foreground window.
 
 ### 🎮 **Comprehensive Controls**
 - **Play/Pause Toggle** - `Cmd+Space`
@@ -110,6 +111,7 @@ This extension works with any Windows application that implements the Windows Me
 - 2025-08-09: Added explicit YouTube detection for Zen Browser (supports hyphen or em dash before "Zen Browser").
 - 2025-08-09: Implemented smart selection scoring (video-first, live bonus, paused penalty) to pick the most relevant active session.
 - 2025-08-09: Implemented Hybrid detection (SMTC-first with browser window-title fallback) in the embedded script and test script.
+- 2025-08-09: Added foreground-window bonus to scoring.
 
 ### Performance
 - **Lightweight:** Minimal resource usage with efficient polling

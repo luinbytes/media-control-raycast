@@ -99,6 +99,18 @@ $processes = Get-Process | Where-Object { $_.MainWindowTitle -ne "" }
 # Collect candidates and pick the best by score
 $candidates = @()
 
+# Determine foreground process name for bonus
+Add-Type -Namespace Win32 -Name Native -MemberDefinition @"
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr hWnd, out uint lpdwProcessId);
+"@
+$hWnd = [Win32.Native]::GetForegroundWindow()
+$fgPid = 0
+[Win32.Native]::GetWindowThreadProcessId($hWnd, [ref]$fgPid) | Out-Null
+$ForegroundProcessName = $null
+if ($fgPid -ne 0) {
+    try { $ForegroundProcessName = (Get-Process -Id $fgPid -ErrorAction Stop).ProcessName.ToLower() } catch {}
+}
 # Helper to wait WinRT IAsyncOperation without WindowsRuntimeSystemExtensions
 function Wait-AsyncOperation {
     param(
@@ -159,11 +171,16 @@ try {
                     Genre = $null
                 }
 
-                # Scoring: prefer playing; base by type; live bonus
+                # Scoring: prefer playing; base by type; live bonus; foreground bonus
                 $base = if ($isSpotify) { 80 } elseif ($isBrowser) { 75 } else { 78 }
                 $bonusLive = if ($sessionInfo.Title -match '(?i)live|🔴') { 20 } else { 0 }
                 $penaltyPaused = if ($isPlaying) { 0 } else { 20 }
-                $score = $base + $bonusLive - $penaltyPaused
+                $bonusFg = 0
+                if ($ForegroundProcessName) {
+                    $appLower2 = $appId.ToLower()
+                    if ($appLower2 -match [regex]::Escape($ForegroundProcessName)) { $bonusFg = 12 }
+                }
+                $score = $base + $bonusLive + $bonusFg - $penaltyPaused
                 $candidates += @{ Score = $score; Session = $sessionInfo }
             } catch {}
         }
