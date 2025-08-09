@@ -797,7 +797,7 @@ export function parseMediaInfo(title: string, artist: string, appName: string): 
     // YouTube format: "Video Title - Channel Name"
     // or "Video Title" with artist as channel
     let videoTitle = title;
-    let channelName = artist;
+    let channelName: string | undefined = artist || undefined;
     
     // Check for live indicators
     const isLive = title.toLowerCase().includes("live") || 
@@ -819,6 +819,11 @@ export function parseMediaInfo(title: string, artist: string, appName: string): 
       if (playlistMatch) {
         playlistName = playlistMatch[1].trim();
       }
+    }
+    
+    // If the artist is literally 'YouTube', we don't have channel metadata from the title
+    if (channelName && channelName.trim().toLowerCase() === "youtube") {
+      channelName = undefined;
     }
     
     return {
@@ -844,18 +849,22 @@ export function determineSourceType(appName: string, title: string, artist: stri
   const lowerAppName = appName.toLowerCase();
   const lowerTitle = (title || "").toLowerCase();
   const lowerArtist = (artist || "").toLowerCase();
-  
+
+  // Treat browser + YouTube patterns as video
+  const isBrowser = /chrome|brave|edge|firefox|zen|vivaldi|opera/.test(lowerAppName);
+  const looksLikeYouTube = lowerTitle.includes(" - youtube - ") || lowerArtist === "youtube" || /\byoutube\b/.test(lowerTitle);
+
   // Video indicators
-  if (lowerAppName.includes("youtube") || 
-      lowerAppName.includes("netflix") || 
+  if (looksLikeYouTube ||
+      lowerAppName.includes("youtube") ||
+      lowerAppName.includes("netflix") ||
       lowerAppName.includes("disney") ||
       lowerAppName.includes("prime") ||
       lowerAppName.includes("hulu") ||
       lowerAppName.includes("vlc") ||
-      lowerAppName.includes("media player") ||
-      lowerTitle.includes("video") ||
-      lowerTitle.includes("movie") ||
-      lowerTitle.includes("episode")) {
+      (isBrowser && looksLikeYouTube) ||
+      lowerTitle.includes("watch") ||
+      lowerTitle.includes("video")) {
     return "video";
   }
   

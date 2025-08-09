@@ -113,6 +113,7 @@ This extension works with any Windows application that implements the Windows Me
   - Improve SMTC targeting: prefer session matching the foreground app AUMID, then any playing, else current.
   - Always synthesize a media key via `user32.dll` after SMTC call to ensure the action applies across apps.
   - Preserve last known media session in UI when detection temporarily returns null (mark as paused) for easier resume.
+  - Correctly classify browser-based YouTube as `video` (no longer `unknown`) and avoid showing the channel as literal "YouTube" when channel metadata is unavailable.
 
 - 2025-08-09: Added explicit YouTube detection for Microsoft Edge and Firefox. Switched media detection PowerShell execution to `-File` to avoid command-line length limits.
 - 2025-08-09: Added explicit YouTube detection for Zen Browser (supports hyphen or em dash before "Zen Browser").
