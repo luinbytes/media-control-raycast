@@ -439,23 +439,34 @@ export async function getCurrentMediaSession(): Promise<MediaSession | null> {
  */
 export async function controlAppVolume(action: "up" | "down" | "mute"): Promise<boolean> {
   try {
-    let script = "";
-    
-    switch (action) {
-      case "up":
-        script = "(New-Object -comObject WScript.Shell).SendKeys([char]175)";
-        break;
-      case "down":
-        script = "(New-Object -comObject WScript.Shell).SendKeys([char]174)";
-        break;
-      case "mute":
-        script = "(New-Object -comObject WScript.Shell).SendKeys([char]173)";
-        break;
-    }
-    
-    await execAsync(`powershell -Command "${script}"`);
-    console.log(`Volume ${action} successful`);
-    return true;
+    const ps = `param([string]$Action)
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class KbdSender {
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+}
+"@
+$vk = 0xAF # VOL_UP
+switch ($Action) {
+  'up' { $vk = 0xAF }
+  'down' { $vk = 0xAE }
+  'mute' { $vk = 0xAD }
+}
+try {
+  [KbdSender]::keybd_event([byte]$vk, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 10
+  [KbdSender]::keybd_event([byte]$vk, 0, 2, [UIntPtr]::Zero)
+  'OK'
+} catch { 'ERR' }
+`;
+    const psPath = path.join(os.tmpdir(), "raycast_volume_keys.ps1");
+    fs.writeFileSync(psPath, ps, { encoding: "utf8" });
+    const { stdout } = await execAsync(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}" -Action ${action}`);
+    const ok = stdout.trim().includes("OK");
+    if (ok) console.log(`Volume ${action} successful`);
+    return ok;
   } catch (error) {
     console.error(`Error in controlAppVolume:`, error);
     return false;
@@ -467,29 +478,109 @@ export async function controlAppVolume(action: "up" | "down" | "mute"): Promise<
  */
 export async function controlMedia(action: "play" | "pause" | "next" | "previous" | "toggle"): Promise<boolean> {
   try {
-    let script = "";
-    
-    switch (action) {
-      case "play":
-        script = "(New-Object -comObject WScript.Shell).SendKeys([char]179)";
-        break;
-      case "pause":
-        script = "(New-Object -comObject WScript.Shell).SendKeys([char]179)";
-        break;
-      case "toggle":
-        script = "(New-Object -comObject WScript.Shell).SendKeys([char]179)";
-        break;
-      case "next":
-        script = "(New-Object -comObject WScript.Shell).SendKeys([char]176)";
-        break;
-      case "previous":
-        script = "(New-Object -comObject WScript.Shell).SendKeys([char]177)";
-        break;
+    const ps = `
+param([string]$Action)
+
+function Wait-AsyncOperation {
+  param([Parameter(Mandatory=$true)] $Operation, [int] $TimeoutMs = 4000, [int] $PollMs = 50)
+  $elapsed = 0
+  while ($Operation.Status.ToString() -eq 'Started' -and $elapsed -lt $TimeoutMs) {
+    Start-Sleep -Milliseconds $PollMs
+    $elapsed += $PollMs
+  }
+  if ($Operation.Status.ToString() -eq 'Completed') { return $Operation.GetResults() } else { return $false }
+}
+
+$usedSmTc = $false
+# Determine foreground process name to better target session
+Add-Type -Namespace Win32 -Name Native -MemberDefinition @"
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+    [System.Runtime.InteropServices.DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr hWnd, out uint lpdwProcessId);
+"@
+$hWnd = [Win32.Native]::GetForegroundWindow()
+$fgPid = 0
+[Win32.Native]::GetWindowThreadProcessId($hWnd, [ref]$fgPid) | Out-Null
+$ForegroundProcessName = $null
+if ($fgPid -ne 0) {
+  try { $ForegroundProcessName = ([System.Diagnostics.Process]::GetProcessById([int]$fgPid)).ProcessName.ToLower() } catch {}
+}
+try {
+  $mgrOp = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime]::RequestAsync()
+  $mgr = Wait-AsyncOperation -Operation $mgrOp
+  if ($mgr) {
+    $target = $null
+    try {
+      $sessions = $mgr.GetSessions()
+      if ($sessions) {
+        # Prefer playing sessions that match the foreground app name within AUMID
+        if ($ForegroundProcessName) {
+          foreach ($sess in $sessions) {
+            try {
+              $info = $sess.GetPlaybackInfo()
+              $status = $info.PlaybackStatus
+              $appId = ($sess.SourceAppUserModelId | Out-String).Trim().ToLower()
+              if ($status -eq [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing -and $appId -match [regex]::Escape($ForegroundProcessName)) {
+                $target = $sess; break
+              }
+            } catch {}
+          }
+        }
+        # Otherwise any playing session
+        if ($target -eq $null) {
+          foreach ($sess in $sessions) {
+            try { if ($sess.GetPlaybackInfo().PlaybackStatus -eq [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing) { $target = $sess; break } } catch {}
+          }
+        }
+      }
+    } catch {}
+    if ($target -eq $null) { $target = $mgr.GetCurrentSession() }
+    if ($target -ne $null) {
+      $usedSmTc = $true
+      switch ($Action) {
+        'play'     { [void](Wait-AsyncOperation -Operation $target.TryPlayAsync()) }
+        'pause'    { [void](Wait-AsyncOperation -Operation $target.TryPauseAsync()) }
+        'toggle'   { [void](Wait-AsyncOperation -Operation $target.TryTogglePlayPauseAsync()) }
+        'next'     { [void](Wait-AsyncOperation -Operation $target.TrySkipNextAsync()) }
+        'previous' { [void](Wait-AsyncOperation -Operation $target.TrySkipPreviousAsync()) }
+      }
     }
-    
-    await execAsync(`powershell -Command "${script}"`);
-    console.log(`Media ${action} successful`);
-    return true;
+  }
+} catch {}
+
+# Also synthesize system media keys using user32.keybd_event to ensure action is applied
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class KbdSender {
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+}
+"@
+$vk = 0xB3 # PLAY/PAUSE
+switch ($Action) {
+  'play' { $vk = 0xB3 }
+  'pause' { $vk = 0xB3 }
+  'toggle' { $vk = 0xB3 }
+  'next' { $vk = 0xB0 }
+  'previous' { $vk = 0xB1 }
+}
+try {
+  [KbdSender]::keybd_event([byte]$vk, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 10
+  [KbdSender]::keybd_event([byte]$vk, 0, 2, [UIntPtr]::Zero) # KEYEVENTF_KEYUP = 2
+} catch {}
+
+Write-Output ("OK " + ($usedSmTc ? "SMTC+VK" : "VK"))
+`;
+
+    const psPath = path.join(os.tmpdir(), "raycast_media_control.ps1");
+    fs.writeFileSync(psPath, ps, { encoding: "utf8" });
+
+    const { stdout } = await execAsync(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}" -Action ${action}`);
+    const out = stdout.trim();
+    const ok = out.includes("OK");
+    if (ok) console.log(`Media ${action} successful (${out})`);
+    return ok;
   } catch (error) {
     console.error(`Error in controlMedia:`, error);
     return false;
@@ -502,33 +593,29 @@ export async function controlMedia(action: "play" | "pause" | "next" | "previous
 export async function getVolume(): Promise<number | null> {
   try {
     const script = `
-Add-Type -AssemblyName System.Windows.Forms
 try {
-    # Try to get volume using Windows API
-    Add-Type -TypeDefinition @"
+  Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 public class VolumeHelper {
     [DllImport("winmm.dll")]
     public static extern int waveOutGetVolume(IntPtr hwo, out uint dwVolume);
-    
     public static int GetVolume() {
         uint volume = 0;
         int result = waveOutGetVolume(IntPtr.Zero, out volume);
         if (result == 0) {
             return (int)((volume & 0x0000ffff) * 100 / 0xffff);
         }
-        return 50; // Default fallback
+        return 50;
     }
 }
 "@
-    [VolumeHelper]::GetVolume()
-} catch {
-    Write-Output "50"
-}
-    `;
-    
-    const { stdout } = await execAsync(`powershell -Command "${script}"`);
+  [VolumeHelper]::GetVolume() | Out-Host
+} catch { "50" | Out-Host }
+`;
+    const psPath = path.join(os.tmpdir(), "raycast_get_volume.ps1");
+    fs.writeFileSync(psPath, script, { encoding: "utf8" });
+    const { stdout } = await execAsync(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}"`);
     const volume = parseInt(stdout.trim());
     return isNaN(volume) ? 50 : Math.max(0, Math.min(100, volume));
   } catch (error) {
@@ -545,13 +632,13 @@ export async function setVolume(volume: number): Promise<boolean> {
     const clampedVolume = Math.max(0, Math.min(100, volume));
     
     const script = `
+param([int]$Target)
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 public class VolumeControl {
     [DllImport("winmm.dll")]
     public static extern int waveOutSetVolume(IntPtr hwo, uint dwVolume);
-    
     public static void SetVolume(int volume) {
         uint vol = (uint)((volume * 0xFFFF) / 100);
         uint stereoVol = (vol << 16) | vol;
@@ -559,11 +646,12 @@ public class VolumeControl {
     }
 }
 "@
-[VolumeControl]::SetVolume(${clampedVolume})
+[VolumeControl]::SetVolume($Target)
 Write-Output "Success"
-    `;
-    
-    const { stdout } = await execAsync(`powershell -Command "${script}"`);
+`;
+    const psPath = path.join(os.tmpdir(), "raycast_set_volume.ps1");
+    fs.writeFileSync(psPath, script, { encoding: "utf8" });
+    const { stdout } = await execAsync(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${psPath}" -Target ${clampedVolume}`);
     return stdout.trim().includes("Success");
   } catch (error) {
     console.error(`Error setting volume to ${volume}:`, error);

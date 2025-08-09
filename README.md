@@ -114,6 +114,8 @@ This extension works with any Windows application that implements the Windows Me
 - 2025-08-09: Added foreground-window bonus to scoring.
 - 2025-08-09: Switched PowerShell invocation to write a temp .ps1 and run with -File (avoids long -EncodedCommand errors).
 - 2025-08-09: Window-title fallback scoring now applies a paused-title penalty and consistent foreground bonus so playing sessions (e.g., Spotify) beat paused browser tabs (Zen/Brave/Chrome/Edge/Firefox).
+- 2025-08-09: Media controls now use SMTC (TryPlay/Pause/Toggle/Next/Previous) with SendKeys fallback for reliability.
+- 2025-08-09: Volume functions (get/set/up/down/mute) refactored to execute via temp .ps1 with -File (avoids command length limits).
 
 ### Performance
 - **Lightweight:** Minimal resource usage with efficient polling
